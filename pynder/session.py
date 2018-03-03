@@ -2,8 +2,8 @@ from time import time
 from cached_property import cached_property
 
 import pynder.api as api
-from pynder.errors import InitializationError, RecsTimeout
-from pynder.models import Profile, User, RateLimited, Match, Friend
+from pynder.errors import InitializationError
+from pynder.models import Profile, Hopeful, Match, Friend
 
 
 class Session(object):
@@ -23,17 +23,11 @@ class Session(object):
 
     def nearby_users(self, limit=10):
         while True:
-            response = self._api.recs(limit)
-
-            if 'message' in response and response['message'] == 'recs timeout':
-                raise RecsTimeout
-
-            users = response['results'] if 'results' in response else []
+            self.response = self._api.recs(limit)
+            users = self.response['results'] if 'results' in self.response else []
             for user in users:
                 if not user["_id"].startswith("tinder_rate_limited_id_"):
-                    yield User(user, self)
-                else:
-                    yield RateLimited(user, self)
+                    yield Hopeful(user, self)
             if not len(users):
                 break
 
@@ -44,8 +38,8 @@ class Session(object):
         return self._api.ping(latitude, longitude)
 
     def matches(self, since=None):
-        response = self._api.matches(since)
-        return (Match(match, self) for match in response if 'person' in match)
+        self.response = self._api.matches(since)
+        return (Match(match, self) for match in self.response if 'person' in match)
 
     def get_fb_friends(self):
         """
@@ -53,20 +47,16 @@ class Session(object):
         :return: Array of friends.
         :rtype: Friend[]
         """
-        response = self._api.fb_friends()
-        return (Friend(friend, self) for friend in response['results'])
+        self.response = self._api.fb_friends()
+        return (Friend(friend, self) for friend in self.response['results'])
 
     def updates(self, since=None):
-        response = self._api.updates(since)
-        return (Match(match, self) for match in response["matches"] if 'person' in match)
+        self.response = self._api.updates(since)
+        return (Match(match, self) for match in self.response["matches"] if 'person' in match)
 
     @property
     def likes_remaining(self):
         return self._api.meta()['rating']['likes_remaining']
-
-    @property
-    def super_likes_remaining(self):
-        return self._api.meta()['rating']['super_likes']['remaining']
 
     @property
     def can_like_in(self):

@@ -8,11 +8,3 @@ class RequestError(PynderError):
 
 class InitializationError(PynderError):
     pass
-
-
-class RecsError(PynderError):
-    pass
-
-
-class RecsTimeout(RecsError):
-    pass

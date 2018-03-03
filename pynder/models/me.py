@@ -1,8 +1,6 @@
-import datetime
 import dateutil.parser
 
 from pynder.constants import UPDATABLE_FIELDS, GENDER_MAP_REVERSE, GENDER_MAP
-from pynder.models.base import Model
 
 
 class ProfileDescriptor(object):
@@ -16,10 +14,7 @@ class ProfileDescriptor(object):
         if hasattr(self, 'value'):
             return self.value
         else:
-            try:
-                return instance._data[self.id]
-            except KeyError:
-                return None
+            return instance._data[self.id]
 
     def __set__(self, instance, value):
         profile = {}
@@ -46,7 +41,7 @@ class GenderDescriptor(ProfileDescriptor):
 
 
 class InterestedInDescriptor(ProfileDescriptor):
-    # makes interested in human readable
+    # makes gender human readable
 
     def __get__(self, instance, owner):
         interested_in = super(InterestedInDescriptor, self).\
@@ -59,7 +54,7 @@ class InterestedInDescriptor(ProfileDescriptor):
             __get__(instance, interested_in)
 
 
-class Profile(Model):
+class Profile(object):
     bio = ProfileDescriptor('bio')
     discoverable = ProfileDescriptor('discoverable')
     distance_filter = ProfileDescriptor('distance_filter')
@@ -75,29 +70,9 @@ class Profile(Model):
         self.photos = map(lambda photo: str(photo['url']), data['photos'])
         self.ping_time = data['ping_time']
         self.name = data['name']
-        self.birth_date = dateutil.parser.parse(data['birth_date'])
         self.create_date = dateutil.parser.parse(self.create_date)
-
-        try:
-            self.pos = data['pos']
-        except KeyError:
-            self.pos = None
-
         self.banned = data['banned'] if "banned" in data else False
         self._data = data
 
     def __repr__(self):
         return self.name
-
-    @property
-    def age(self):
-        today = datetime.date.today()
-        return (today.year - self.birth_date.year -
-                ((today.month, today.day) <
-                 (self.birth_date.month, self.birth_date.day)))
-
-    def add_photo(self, fbid, x_dist=1, y_dist=1, x_offset=0, y_offset=0):
-        return self._api.add_profile_photo(fbid, x_dist, y_dist, x_offset, y_offset)
-
-    def delete_photo(self, photo_id):
-        return self._api.delete_profile_photo(photo_id)

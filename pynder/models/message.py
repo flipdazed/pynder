@@ -1,9 +1,8 @@
 import dateutil.parser
 from six import text_type
-from pynder.models.base import Model
 
 
-class Message(Model):
+class Message(object):
 
     def __init__(self, data, user=None):
         self._data = data

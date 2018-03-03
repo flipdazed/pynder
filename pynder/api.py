@@ -1,3 +1,5 @@
+from Crypto import Random
+import binascii
 import requests
 import threading
 import pynder.constants as constants
@@ -14,18 +16,13 @@ class TinderAPI(object):
         if XAuthToken is not None:
             self._session.headers.update({"X-Auth-Token": str(XAuthToken)})
 
-    def _full_url(self, url):
-        _url = url.lower()
-
-        if _url.startswith("http://") or _url.startswith("https://"):
-            return url
-        else:
-            return constants.API_BASE + url
+    def _url(self, path):
+        return constants.API_BASE + path
 
     def auth(self, facebook_id, facebook_token):
         data = {"facebook_id": str(facebook_id), "facebook_token": facebook_token}
         result = self._session.post(
-            self._full_url('/auth'), json=data, proxies=self._proxies).json()
+            self._url('/auth'), json=data, proxies=self._proxies).json()
         if 'token' not in result:
             raise errors.RequestError("Couldn't authenticate")
         self._token = result['token']
@@ -35,53 +32,61 @@ class TinderAPI(object):
     def _request(self, method, url, data={}):
         if not hasattr(self, '_token'):
             raise errors.InitializationError
-        result = self._session.request(method, self._full_url(
+        self.result = self._session.request(method, self._url(
             url), json=data, proxies=self._proxies)
-        while result.status_code == 429:
+        while self.result.status_code == 429:
             blocker = threading.Event()
             blocker.wait(0.01)
-            result = self._session.request(method, self._full_url(
+            self.result = self._session.request(method, self._url(
                 url), data=data, proxies=self._proxies)
-        if result.status_code < 200 or result.status_code >= 300:
-            raise errors.RequestError(result.status_code)
-        if result.status_code == 201 or result.status_code == 204:
+        if self.result.status_code < 200 or self.result.status_code >= 300:
+            raise errors.RequestError(self.result.status_code)
+        if self.result.status_code == 201 or self.result.status_code == 204:
             return {}
-        return result.json()
+        return self.result.json()
+        
+    def _paginate(self):
+        return binascii.hexlify(Random.get_random_bytes(30))
 
-    def _get(self, url):
-        return self._request("get", url)
+    def _get(self, url, data={}):
+        return self._request("get", url, data)
 
     def _post(self, url, data={}):
         return self._request("post", url, data=data)
 
+    def _options(self, url, data={}):
+        return self._request("options", url, data=data)
+
     def _delete(self, url):
         return self._request("delete", url)
 
-    def updates(self, since):
-        return self._post("/updates", {"last_activity_date": since} if since else {})
+    def messages(self, match, count=100):
+        count = str(int(count))
+        try:
+            res = self._get("/v2/matches/{}/messages?".format(match), {'count':count, 'page_token':self._paginate()} if count else {})
+            return res
+        except errors.RequestError:
+            return None
+
+    def updates(self, since, first_update=True):
+        NotImplementedError('Requires better updating on first update')
+        if first_update:
+            return self._options("/updates?", data={})
+        else:
+            return self._post("/updates?", {"last_activity_date": since} if since else {})
 
     def meta(self):
         return self._get("/meta")
 
-    def add_profile_photo(self, fbid, x_dist, y_dist, x_offset, y_offset):
-        data = {
-                "transmit": "fb",
-                "assets": [{"id": str(fbid), "xdistance_percent": float(x_dist), "ydistance_percent": float(y_dist),
-                            "xoffset_percent": float(x_offset), "yoffset_percent": float(y_offset)}]
-               }
-
-        return self._request("post", constants.CONTENT_BASE + "/media", data=data)
-
-    def delete_profile_photo(self, photo_id):
-        data = {"assets": [photo_id]}
-
-        return self._request("delete", constants.CONTENT_BASE + "/media", data=data)
-
     def recs(self, limit=10):
         return self._post("/user/recs", data={"limit": limit})
 
-    def matches(self, since):
-        return self.updates(since)['matches']
+    def matches(self, count=60, messaged=False):
+        messaged = str(int(messaged))
+        NotImplementedError('Requires paging')
+        res = self._get("/v2/matches?", {'messaged':messaged, 'count':count, 'page_token':self._paginate()} if count else {})
+        return res['data']['matches']
+        
 
     def profile(self):
         return self._get("/profile")
@@ -99,31 +104,18 @@ class TinderAPI(object):
         return self._post("/user/matches/{}".format(user),
                           {"message": str(body)})
 
-    def message_gif(self, user, giphy_id):
-        return self._post("/user/matches/{}".format(user),
-                          {"type": "gif", "gif_id": str(giphy_id)})
-
-    def report(self, user, cause=constants.ReportCause.Other, text=""):
-        try:
-            cause = int(cause)
-        except TypeError:
-            cause = int(cause.value)
-
-        data = {"cause": cause}
-
-        if text and constants.ReportCause(cause) == constants.ReportCause.Other:
-            data["text"] = text
-
-        return self._post("/report/" + user, data)
+    def report(self, user, cause=1):
+        return self._post("/report/" + user, {"cause": cause})
 
     def user_info(self, user_id):
-        return self._get("/user/" + user_id)
+        try:
+            res = self._get("/user/" + user_id)
+            return res
+        except errors.RequestError:
+            return None
 
     def ping(self, lat, lon):
         return self._post("/user/ping", {"lat": lat, "lon": lon})
-
-    def share(self, user):
-        return self._post("/user/{}/share".format(user))
 
     def superlike(self, user):
         result = self._post("/like/{}/super".format(user))
